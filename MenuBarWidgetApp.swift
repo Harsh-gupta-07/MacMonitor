@@ -333,21 +333,13 @@ struct ContentView: View {
 @main
 struct MenuBarWidgetApp: App {
     @StateObject private var monitor = SystemMonitor()
+
     var body: some Scene {
         MenuBarExtra {
             ContentView(monitor: monitor)
         } label: {
-            HStack(spacing: 6) {
-                Label(
-                    String(format: "%.0f%%", monitor.ramUsage),
-                    systemImage: "memorychip"
-                )
-                Label(
-                    String(format: "%.0f%%", monitor.cpuUsage),
-                    systemImage: "cpu"
-                )
-            }
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            Text(String(format: "%.0f%% : %.0f%%", monitor.cpuUsage, monitor.ramUsage))
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
         }
         .menuBarExtraStyle(.window)
     }
