@@ -1,0 +1,1 @@
+swiftc -parse-as-library -o CPUMon -framework SwiftUI -framework AppKit MenuBarWidgetApp.swift && ./CPUMon
