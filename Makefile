@@ -1,4 +1,5 @@
 build:
+	@mkdir -p bin
 	@swiftc -parse-as-library -o ./bin/MacMonitor -framework SwiftUI -framework AppKit MenuBarWidgetApp.swift
 
 run: build
