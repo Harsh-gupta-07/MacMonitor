@@ -36,10 +36,11 @@ class SystemMonitor: ObservableObject {
         }
     }
     
-    func stopMonitoring() {
-        timer?.invalidate()
-        timer = nil
-    }
+    //Mac handles it by default
+    // func stopMonitoring() {
+    //     timer?.invalidate()
+    //     timer = nil
+    // }
     
     private func updateUsage() {
         cpuUsage = getCPUUsage()
@@ -182,6 +183,8 @@ class SystemMonitor: ObservableObject {
             let isUp = (flags & IFF_UP) != 0
 
             if isUp && !isLoopback,
+               let sa = addr.pointee.ifa_addr,
+               sa.pointee.sa_family == UInt8(AF_LINK),
                let data = addr.pointee.ifa_data {
                 let networkData = data.assumingMemoryBound(to: if_data.self)
                 bytesIn  += UInt64(networkData.pointee.ifi_ibytes)
@@ -205,11 +208,6 @@ class SystemMonitor: ObservableObject {
         let dlMBps = (deltaIn  / interval) / 1_048_576
         let ulMBps = (deltaOut / interval) / 1_048_576
         return (dlMBps, ulMBps)
-    }
-
-    deinit {
-        timer?.invalidate()
-        timer = nil
     }
 }
 
@@ -454,7 +452,7 @@ struct MenuBarWidgetApp: App {
             ContentView(monitor: monitor)
         } label: {
             Text(
-                String(format: "%.0f%% %.0f%%  ↓%@ ↑%@",
+                String(format: "%.0f%% : %.0f%%  ↓%@ ↑%@",
                     monitor.cpuUsage,
                     monitor.ramUsage,
                     formatSpeed(monitor.downloadSpeed),
