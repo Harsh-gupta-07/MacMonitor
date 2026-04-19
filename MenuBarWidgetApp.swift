@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import Darwin
 
 // MARK: - System Monitor
 @MainActor
@@ -9,12 +10,18 @@ class SystemMonitor: ObservableObject {
     @Published var ramUsedGB: Double = 0.0
     @Published var ramTotalGB: Double = 0.0
     @Published var swapUsedGB: Double = 0.0
+    @Published var downloadSpeed: Double = 0.0  // MB/s
+    @Published var uploadSpeed: Double = 0.0    // MB/s
     
     private var timer: Timer?
     
     // Store previous CPU ticks for delta calculation
     private var previousTotalTicks: Double = 0
     private var previousUsedTicks: Double = 0
+
+    // Store previous network byte counts for delta calculation
+    private var previousBytesIn: UInt64 = 0
+    private var previousBytesOut: UInt64 = 0
     
     init() {
         updateUsage()
@@ -37,6 +44,7 @@ class SystemMonitor: ObservableObject {
     private func updateUsage() {
         cpuUsage = getCPUUsage()
         (ramUsage, ramUsedGB, swapUsedGB, ramTotalGB) = getRAMUsage()
+        (downloadSpeed, uploadSpeed) = getNetworkSpeed()
     }
     
     private func getCPUUsage() -> Double {
@@ -155,6 +163,50 @@ class SystemMonitor: ObservableObject {
         return (percentage, physicalUsedGB, swapUsedGB, totalGB)
     }
     
+    // MARK: - Network Speed
+    private func getNetworkSpeed() -> (download: Double, upload: Double) {
+        var bytesIn: UInt64 = 0
+        var bytesOut: UInt64 = 0
+
+        var ifaddrsPtr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddrsPtr) == 0, let firstAddr = ifaddrsPtr else {
+            return (0, 0)
+        }
+        defer { freeifaddrs(ifaddrsPtr) }
+
+        var cursor: UnsafeMutablePointer<ifaddrs>? = firstAddr
+        while let addr = cursor {
+            let flags = Int32(addr.pointee.ifa_flags)
+            // Skip loopback and interfaces that are not up
+            let isLoopback = (flags & IFF_LOOPBACK) != 0
+            let isUp = (flags & IFF_UP) != 0
+
+            if isUp && !isLoopback,
+               let data = addr.pointee.ifa_data {
+                let networkData = data.assumingMemoryBound(to: if_data.self)
+                bytesIn  += UInt64(networkData.pointee.ifi_ibytes)
+                bytesOut += UInt64(networkData.pointee.ifi_obytes)
+            }
+            cursor = addr.pointee.ifa_next
+        }
+
+        let isFirstSample = previousBytesIn == 0 && previousBytesOut == 0
+        let prevIn  = previousBytesIn
+        let prevOut = previousBytesOut
+        previousBytesIn  = bytesIn
+        previousBytesOut = bytesOut
+
+        guard !isFirstSample else { return (0, 0) }
+
+        // Timer interval is 2 seconds; convert bytes/2s → MB/s
+        let interval: Double = 2.0
+        let deltaIn  = bytesIn  >= prevIn  ? Double(bytesIn  - prevIn)  : 0
+        let deltaOut = bytesOut >= prevOut ? Double(bytesOut - prevOut) : 0
+        let dlMBps = (deltaIn  / interval) / 1_048_576
+        let ulMBps = (deltaOut / interval) / 1_048_576
+        return (dlMBps, ulMBps)
+    }
+
     deinit {
         timer?.invalidate()
         timer = nil
@@ -207,6 +259,54 @@ struct UsageBar: View {
                 }
             }
             .frame(height: 8)
+        }
+        .frame(height: 40)
+    }
+}
+
+// MARK: - Network Speed Row
+struct NetworkSpeedRow: View {
+    let download: Double  // MB/s
+    let upload: Double    // MB/s
+
+    /// Format a speed value with appropriate unit (KB/s or MB/s)
+    private func format(_ mbps: Double) -> String {
+        if mbps < 1.0 {
+            return String(format: "%.0f KB/s", mbps * 1024)
+        } else {
+            return String(format: "%.1f MB/s", mbps)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Network")
+                .font(.system(.caption, design: .default))
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 12) {
+                // Download
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .foregroundColor(.cyan)
+                        .imageScale(.small)
+                    Text(format(download))
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundColor(.primary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Upload
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .foregroundColor(.indigo)
+                        .imageScale(.small)
+                    Text(format(upload))
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundColor(.primary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .frame(height: 40)
     }
@@ -276,6 +376,12 @@ struct ContentView: View {
                 swapGB: monitor.swapUsedGB,
                 totalGB: monitor.ramTotalGB
             )
+
+            // Network Speed
+            NetworkSpeedRow(
+                download: monitor.downloadSpeed,
+                upload: monitor.uploadSpeed
+            )
             
             // Stats Summary
             HStack(spacing: 16) {
@@ -334,12 +440,28 @@ struct ContentView: View {
 struct MenuBarWidgetApp: App {
     @StateObject private var monitor = SystemMonitor()
 
+    /// Format a speed value with appropriate unit (KB/s or MB/s) — compact for menu bar
+    private func formatSpeed(_ mbps: Double) -> String {
+        if mbps < 1.0 {
+            return String(format: "%.0fK", mbps * 1024)
+        } else {
+            return String(format: "%.1fM", mbps)
+        }
+    }
+
     var body: some Scene {
         MenuBarExtra {
             ContentView(monitor: monitor)
         } label: {
-            Text(String(format: "%.0f%% : %.0f%%", monitor.cpuUsage, monitor.ramUsage))
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            Text(
+                String(format: "%.0f%% %.0f%%  ↓%@ ↑%@",
+                    monitor.cpuUsage,
+                    monitor.ramUsage,
+                    formatSpeed(monitor.downloadSpeed),
+                    formatSpeed(monitor.uploadSpeed)
+                )
+            )
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
         }
         .menuBarExtraStyle(.window)
     }
