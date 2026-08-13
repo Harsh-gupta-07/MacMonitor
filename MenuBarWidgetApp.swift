@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import AppKit
 import Darwin
 
 // MARK: - System Monitor
@@ -29,7 +30,7 @@ class SystemMonitor: ObservableObject {
     }
     
     func startMonitoring() {
-        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.updateUsage()
             }
@@ -447,19 +448,101 @@ struct MenuBarWidgetApp: App {
         }
     }
 
+    private func menuBarStatusImage() -> NSImage {
+        let cpuText = String(format: "%.0f%%", monitor.cpuUsage)
+        let ramText = String(format: "%.0f%%", monitor.ramUsage)
+        let downloadText = formatSpeed(monitor.downloadSpeed)
+        let uploadText = formatSpeed(monitor.uploadSpeed)
+
+        let labelFont = NSFont.monospacedSystemFont(ofSize: 6.0, weight: .semibold)
+        let valueFont = NSFont.monospacedSystemFont(ofSize: 9.5, weight: .bold)
+        let networkFont = NSFont.monospacedSystemFont(ofSize: 8.0, weight: .semibold)
+
+        let centeredParagraph = NSMutableParagraphStyle()
+        centeredParagraph.alignment = .center
+        centeredParagraph.lineBreakMode = .byClipping
+
+        let leftParagraph = NSMutableParagraphStyle()
+        leftParagraph.alignment = .left
+        leftParagraph.lineBreakMode = .byClipping
+
+        let labelAttributes: [NSAttributedString.Key: Any] = [
+            .font: labelFont,
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: centeredParagraph
+        ]
+        let valueAttributes: [NSAttributedString.Key: Any] = [
+            .font: valueFont,
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: centeredParagraph
+        ]
+        let networkAttributes: [NSAttributedString.Key: Any] = [
+            .font: networkFont,
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: leftParagraph
+        ]
+
+        let metricColumnWidth: CGFloat = 24
+        let metricSpacing: CGFloat = 1
+        let networkSpacing: CGFloat = 5
+        let networkColumnWidth = ceil(max(
+            ("↓\(downloadText)" as NSString).size(withAttributes: networkAttributes).width,
+            ("↑\(uploadText)" as NSString).size(withAttributes: networkAttributes).width
+        ))
+        let imageSize = NSSize(
+            width: (metricColumnWidth * 2) + metricSpacing + networkSpacing + networkColumnWidth,
+            height: 18
+        )
+        let image = NSImage(size: imageSize)
+
+        image.lockFocus()
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: imageSize).fill()
+
+        let cpuRect = NSRect(x: 0, y: 0, width: metricColumnWidth, height: imageSize.height)
+        let ramRect = NSRect(
+            x: cpuRect.maxX + metricSpacing,
+            y: 0,
+            width: metricColumnWidth,
+            height: imageSize.height
+        )
+        let networkX = ramRect.maxX + networkSpacing
+
+        ("CPU" as NSString).draw(
+            in: NSRect(x: cpuRect.minX, y: 10.5, width: cpuRect.width, height: 7),
+            withAttributes: labelAttributes
+        )
+        ("RAM" as NSString).draw(
+            in: NSRect(x: ramRect.minX, y: 10.5, width: ramRect.width, height: 7),
+            withAttributes: labelAttributes
+        )
+        (cpuText as NSString).draw(
+            in: NSRect(x: cpuRect.minX, y: 0, width: cpuRect.width, height: 11),
+            withAttributes: valueAttributes
+        )
+        (ramText as NSString).draw(
+            in: NSRect(x: ramRect.minX, y: 0, width: ramRect.width, height: 11),
+            withAttributes: valueAttributes
+        )
+        ("↓\(downloadText)" as NSString).draw(
+            in: NSRect(x: networkX, y: 9, width: networkColumnWidth, height: 9),
+            withAttributes: networkAttributes
+        )
+        ("↑\(uploadText)" as NSString).draw(
+            in: NSRect(x: networkX, y: 0, width: networkColumnWidth, height: 9),
+            withAttributes: networkAttributes
+        )
+        image.unlockFocus()
+
+        image.isTemplate = true
+        return image
+    }
+
     var body: some Scene {
         MenuBarExtra {
             ContentView(monitor: monitor)
         } label: {
-            Text(
-                String(format: "%.0f%% : %.0f%%  ↓%@ ↑%@",
-                    monitor.cpuUsage,
-                    monitor.ramUsage,
-                    formatSpeed(monitor.downloadSpeed),
-                    formatSpeed(monitor.uploadSpeed)
-                )
-            )
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            Image(nsImage: menuBarStatusImage())
         }
         .menuBarExtraStyle(.window)
     }
