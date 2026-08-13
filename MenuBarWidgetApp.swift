@@ -454,9 +454,9 @@ struct MenuBarWidgetApp: App {
         let downloadText = formatSpeed(monitor.downloadSpeed)
         let uploadText = formatSpeed(monitor.uploadSpeed)
 
-        let labelFont = NSFont.monospacedSystemFont(ofSize: 6.0, weight: .semibold)
-        let valueFont = NSFont.monospacedSystemFont(ofSize: 9.5, weight: .bold)
-        let networkFont = NSFont.monospacedSystemFont(ofSize: 8.0, weight: .semibold)
+        let labelFont = NSFont.monospacedSystemFont(ofSize: 7.5, weight: .semibold)
+        let valueFont = NSFont.monospacedSystemFont(ofSize: 11.0, weight: .bold)
+        let networkFont = NSFont.monospacedSystemFont(ofSize: 9.5, weight: .semibold)
 
         let centeredParagraph = NSMutableParagraphStyle()
         centeredParagraph.alignment = .center
